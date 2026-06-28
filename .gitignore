@@ -25,3 +25,7 @@ Thumbs.db
 *.docx
 *.xlsx
 *.pdf
+
+# Ignore all markdown files except README.md
+*.md
+!README.md
