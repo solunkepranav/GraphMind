@@ -7,8 +7,11 @@ class VectorStore:
     def __init__(self):
         # Initialize PersistentClient using the configured DB path
         self.client = chromadb.PersistentClient(path=config.DB_DIR)
-        # Create or retrieve collection
-        self.collection = self.client.get_or_create_collection(name="graphmind_documents")
+
+    @property
+    def collection(self):
+        # Dynamically fetch/create to avoid stale handles after deletion
+        return self.client.get_or_create_collection(name="graphmind_documents")
 
     def add_chunks(self, chunks: list[dict]):
         """
@@ -35,15 +38,19 @@ class VectorStore:
             ids=ids
         )
 
-    def search(self, query: str, top_k: int = 5) -> list[dict]:
+    def search(self, query: str, top_k: int = 5, source_filter: list[str] = None) -> list[dict]:
         """
-        Queries ChromaDB and returns top_k matching chunks with documents, metadata, and scores.
+        Queries ChromaDB and returns top_k matching chunks with documents, metadata, and scores,
+        optionally filtered by source filenames.
         """
         query_embedding = llm.get_embeddings([query])[0]
         
+        where = {"source": {"$in": source_filter}} if source_filter else None
+        
         results = self.collection.query(
             query_embeddings=[query_embedding],
-            n_results=top_k
+            n_results=top_k,
+            where=where
         )
         
         retrieved_chunks = []
@@ -63,10 +70,32 @@ class VectorStore:
                 })
         return retrieved_chunks
 
+    def delete_by_source(self, source_name: str):
+        """Deletes all chunks belonging to the specified source filename."""
+        try:
+            self.collection.delete(where={"source": source_name})
+        except Exception as e:
+            print(f"Error deleting source {source_name} from VectorStore: {e}")
+
+    def get_source_preview(self, source_name: str, max_chars: int = 500) -> str:
+        """Retrieves a preview (first few characters) of the document content from the vector store."""
+        try:
+            results = self.collection.get(
+                where={"source": source_name},
+                limit=3
+            )
+            if results and results["documents"]:
+                full_text = "\n\n".join(results["documents"])
+                if len(full_text) > max_chars:
+                    return full_text[:max_chars] + "..."
+                return full_text
+        except Exception as e:
+            print(f"Error fetching preview for source {source_name}: {e}")
+        return "No preview content available."
+
     def reset(self):
         """Clears the collection to re-ingest documents."""
         try:
             self.client.delete_collection("graphmind_documents")
         except Exception:
             pass
-        self.collection = self.client.get_or_create_collection(name="graphmind_documents")

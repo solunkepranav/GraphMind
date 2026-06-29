@@ -9,6 +9,8 @@ DATA_DIR = os.path.join(BASE_DIR, "data")
 DB_DIR = os.path.join(DATA_DIR, "chromadb")
 GRAPH_DIR = os.path.join(DATA_DIR, "graphs")
 OUTPUT_DIR = os.path.join(BASE_DIR, "output")
+MISTAKE_LEDGER_PATH = os.path.join(DATA_DIR, "mistake_ledger.json")
+SOURCE_REGISTRY_PATH = os.path.join(DATA_DIR, "source_registry.json")
 
 # Ensure directories exist
 for d in [DATA_DIR, DB_DIR, GRAPH_DIR, OUTPUT_DIR]:
