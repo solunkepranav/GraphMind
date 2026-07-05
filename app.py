@@ -263,8 +263,11 @@ if st.sidebar.button("Ingest & Index Documents"):
                 st.session_state.vector_store.add_chunks(chunks)
                 
                 total_chunks = len(chunks)
-                status_text.text(f"Extracting knowledge graph ({total_chunks} chunks, 2 parallel streams)...")
-                st.session_state.graph_store.add_relations_from_chunks_parallel(chunks, max_workers=2)
+                status_text.text(f"Extracting knowledge graph ({total_chunks} chunks, {st.session_state.get('max_workers', 2)} parallel streams)...")
+                st.session_state.graph_store.add_relations_from_chunks_parallel(
+                    chunks,
+                    max_workers=st.session_state.get("max_workers", 2)
+                )
                 
                 # Register source in registry
                 page_count = max([c.get("page", 1) for c in chunks]) if chunks else 1
@@ -378,6 +381,22 @@ with st.sidebar.expander("Settings", expanded=False):
                 st.success(msg)
             else:
                 st.error(msg)
+
+    st.markdown("---")
+    st.markdown("#### Parallel Ingestion Workers")
+    max_workers = st.slider(
+        "Extraction Workers",
+        min_value=1,
+        max_value=6,
+        value=st.session_state.get("max_workers", 2),
+        help=(
+            "Number of parallel streams used to extract the knowledge graph from your documents.\n"
+            "Each worker loads one gemma3:1b model instance.\n"
+            "Increase this if your GPU has more than 4 GB of VRAM.\n"
+            "See the README Hardware Guide for recommended values per GPU."
+        )
+    )
+    st.session_state.max_workers = max_workers
                 
     st.markdown("---")
     st.markdown("#### System Statistics")

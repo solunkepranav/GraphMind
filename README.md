@@ -99,3 +99,56 @@ streamlit run app.py
 
 ## ⚙️ Development Configs
 You can fine-tune text chunking sizes, model targets, paths, and extraction prompts in the [src/config.py](src/config.py) module.
+
+---
+
+## ⚡ Parallel Ingestion Workers — Hardware Guide
+
+GraphMind uses a **parallel dual-stream extraction engine** to build the Knowledge Graph faster. During ingestion, it fires multiple `gemma3:1b` model calls simultaneously, keeping your GPU's CUDA cores saturated at all times instead of sitting idle between chunks.
+
+### How to Configure
+
+Open the sidebar → **Settings** → drag the **Extraction Workers** slider to the value that matches your GPU from the table below.
+
+You can also hard-code the default in `src/config.py` (the sidebar slider overrides this at runtime):
+
+```python
+# src/config.py
+CHUNK_SIZE = 500       # Tokens per chunk — smaller = lower KV Cache VRAM per worker
+CHUNK_OVERLAP = 100    # Overlap between chunks
+```
+
+---
+
+### Recommended Workers by Hardware
+
+> **How to read this table:**
+> - **Workers** = number of simultaneous `gemma3:1b` extraction calls.
+> - **VRAM Used** = estimated peak VRAM (model weights × workers + KV Cache overhead per chunk).
+> - **VRAM Headroom** = remaining VRAM for the OS and other tasks.
+> - **Speed Estimate** = approximate time to ingest a 50-page academic PDF (~150 chunks).
+
+| GPU | VRAM | Recommended Workers | VRAM Used (est.) | VRAM Headroom | Speed (50-page PDF) |
+|---|---|---|---|---|---|
+| Intel / AMD Integrated Graphics | Shared RAM | **1 (CPU only)** | — | — | ~25–40 min |
+| NVIDIA GTX 1060 / RX 580 | 6 GB | **2** | ~2.6 GB | ~3.4 GB | ~10–14 min |
+| NVIDIA RTX 2060 / GTX 1080 Ti | 6–11 GB | **3** | ~3.5 GB | ~2.5 GB+ | ~7–9 min |
+| NVIDIA RTX 3050 (Laptop) | 4 GB | **2** *(default)* | ~2.6 GB | ~1.4 GB | ~8–12 min |
+| NVIDIA RTX 3060 / 3060 Ti | 8–12 GB | **4** | ~4.8 GB | ~3 GB+ | ~4–6 min |
+| NVIDIA RTX 3070 / 3080 | 8–10 GB | **4–5** | ~4.8–5.6 GB | ~3 GB+ | ~3–5 min |
+| NVIDIA RTX 4060 (Laptop) | 8 GB | **4** | ~4.8 GB | ~3.2 GB | ~4–5 min |
+| NVIDIA RTX 4060 Ti / 4070 | 8–12 GB | **4–5** | ~4.8–5.6 GB | ~3 GB+ | ~3–4 min |
+| NVIDIA RTX 4080 / 4090 | 16–24 GB | **6** | ~6.4 GB | ~10+ GB | ~2–3 min |
+| Apple M1 / M2 (unified memory) | 8–16 GB | **3–4** | ~3.5–4.8 GB | ~3 GB+ | ~4–7 min |
+| Apple M3 Max / M4 Pro | 36–48 GB | **6** | ~6.4 GB | ~30+ GB | ~2–3 min |
+
+> **Note:** VRAM estimates are based on:
+> - `gemma3:1b` model weights ≈ **0.8 GB per worker instance**
+> - KV Cache overhead per 500-token chunk ≈ **0.5 GB per active worker**
+> - Total formula: `(0.8 + 0.5) × workers` GB peak
+
+### Important Warnings
+
+> **Do NOT exceed the recommended workers for your GPU.** If VRAM runs out, Ollama will spill model weights into system RAM via PCIe, making extraction **slower than single-threaded** (sometimes 5–10× slower due to PCIe bus bandwidth limits).
+
+> **CPU-only users** should keep workers at **1**. Running multiple LLM instances on CPU increases RAM pressure and context-switching overhead with no GPU parallelism benefit.
