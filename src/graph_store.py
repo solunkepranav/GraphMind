@@ -1,6 +1,8 @@
 import os
 import json
+import threading
 import networkx as nx
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pyvis.network import Network
 from src import config
 from src import llm
@@ -9,6 +11,7 @@ class GraphStore:
     def __init__(self):
         self.graph_path = os.path.join(config.GRAPH_DIR, "knowledge_graph.json")
         self.graph = nx.DiGraph()
+        self._write_lock = threading.Lock()  # Serialises graph mutations during parallel ingestion
         self.load()
 
     def load(self):
@@ -46,6 +49,8 @@ class GraphStore:
         """
         Uses LLM to extract entities and relations from a text chunk,
         and adds them to the NetworkX graph.
+        The LLM inference runs without any lock (concurrent-safe via Ollama's own queuing).
+        Graph mutations are serialised with _write_lock to prevent race conditions.
         """
         text = chunk["text"]
         source = chunk["source"]
@@ -55,59 +60,80 @@ class GraphStore:
         prompt = config.ENTITY_EXTRACTION_PROMPT.format(text=text)
         
         try:
+            # LLM call: runs concurrently across threads (no lock needed)
             triples = llm.generate_json(prompt, task="fast")
             if not isinstance(triples, list):
-                # If LLM didn't return a list, skip
                 return
-                
+
+            # Build the local mutations list without holding the lock
+            mutations = []
             for triple in triples:
                 if not isinstance(triple, dict):
                     continue
                 subj = triple.get("subject")
                 rel = triple.get("relation")
                 obj = triple.get("object")
-                
                 if not subj or not rel or not obj:
                     continue
-                
-                # Normalize names: strip, title case to merge synonyms
                 subj = str(subj).strip().title()
                 obj = str(obj).strip().title()
                 rel = str(rel).strip().lower()
+                mutations.append((subj, rel, obj))
+
+            # Acquire lock only for the actual graph write
+            with self._write_lock:
+                for subj, rel, obj in mutations:
+                    # Add nodes if they don't exist
+                    if not self.graph.has_node(subj):
+                        self.graph.add_node(subj, type="Entity", degree=0)
+                    if not self.graph.has_node(obj):
+                        self.graph.add_node(obj, type="Entity", degree=0)
+                    
+                    # Add or update edge
+                    if self.graph.has_edge(subj, obj):
+                        edge_data = self.graph.edges[subj, obj]
+                        if source not in edge_data.get("sources", []):
+                            edge_data["sources"].append(source)
+                        edge_data["count"] = edge_data.get("count", 1) + 1
+                        page_str = f"{source}:p{page}"
+                        if page_str not in edge_data.get("pages", []):
+                            edge_data["pages"].append(page_str)
+                    else:
+                        self.graph.add_edge(
+                            subj,
+                            obj,
+                            relation=rel,
+                            sources=[source],
+                            pages=[f"{source}:p{page}"],
+                            count=1
+                        )
                 
-                # Add nodes if they don't exist
-                if not self.graph.has_node(subj):
-                    self.graph.add_node(subj, type="Entity", degree=0)
-                if not self.graph.has_node(obj):
-                    self.graph.add_node(obj, type="Entity", degree=0)
-                
-                # Add or update edge
-                if self.graph.has_edge(subj, obj):
-                    edge_data = self.graph.edges[subj, obj]
-                    # Update sources list and count
-                    if source not in edge_data.get("sources", []):
-                        edge_data["sources"].append(source)
-                    edge_data["count"] = edge_data.get("count", 1) + 1
-                    # Append page if not already listed
-                    page_str = f"{source}:p{page}"
-                    if page_str not in edge_data.get("pages", []):
-                        edge_data["pages"].append(page_str)
-                else:
-                    self.graph.add_edge(
-                        subj, 
-                        obj, 
-                        relation=rel, 
-                        sources=[source], 
-                        pages=[f"{source}:p{page}"],
-                        count=1
-                    )
-            
-            # Update degree attribute for visualization sizing
-            for node in self.graph.nodes:
-                self.graph.nodes[node]["degree"] = self.graph.degree(node)
+                # Update degree attribute for visualization sizing
+                for node in self.graph.nodes:
+                    self.graph.nodes[node]["degree"] = self.graph.degree(node)
                 
         except Exception as e:
             print(f"Error extracting relations from chunk: {e}")
+
+    def add_relations_from_chunks_parallel(self, chunks: list, max_workers: int = 2):
+        """
+        Processes a list of chunks in parallel using ThreadPoolExecutor.
+        max_workers=2 is optimal for an RTX 3050 4GB:
+          - Two gemma3:1b (0.8 GB each) fit in VRAM simultaneously.
+          - LLM inference runs concurrently; graph writes are serialised via _write_lock.
+        """
+        if not chunks:
+            return
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {
+                executor.submit(self.add_relations_from_chunk, chunk): i
+                for i, chunk in enumerate(chunks)
+            }
+            for future in as_completed(futures):
+                try:
+                    future.result()
+                except Exception as e:
+                    print(f"Parallel extraction error on chunk {futures[future]}: {e}")
 
     def traverse_subgraph(self, seed_entities: list[str], max_depth: int = 1, source_filter: list[str] = None) -> list[dict]:
         """

@@ -26,9 +26,9 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 GEMINI_EMBED_MODEL = os.getenv("GEMINI_EMBED_MODEL", "text-embedding-004")
 
-# Chunking Config
-CHUNK_SIZE = 1000
-CHUNK_OVERLAP = 200
+# Chunking Config — reduced for parallel dual-stream VRAM safety (2x gemma3:1b @ 4GB RTX 3050)
+CHUNK_SIZE = 500
+CHUNK_OVERLAP = 100
 
 # Prompts
 ENTITY_EXTRACTION_PROMPT = """You are an expert knowledge engineer. Your task is to extract semantic entities and their relationships from the given text chunk.

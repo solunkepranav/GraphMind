@@ -99,8 +99,7 @@ def run_comparison(vector_store: VectorStore, graph_store: GraphStore) -> dict:
                 })
             
             vector_store.add_chunks(chunks)
-            for chunk in chunks:
-                graph_store.add_relations_from_chunk(chunk)
+            graph_store.add_relations_from_chunks_parallel(chunks, max_workers=2)
             graph_store.save()
             print("Auto-ingestion complete!")
         else:
@@ -134,7 +133,7 @@ def run_comparison(vector_store: VectorStore, graph_store: GraphStore) -> dict:
         )
         
         try:
-            grade = llm.generate_json(judge_prompt)
+            grade = llm.generate_json(judge_prompt, task="reasoning")
             v_score = int(grade.get("vector_score", 50))
             h_score = int(grade.get("hybrid_score", 85))
             reasoning = grade.get("reasoning", "Comparison completed.")

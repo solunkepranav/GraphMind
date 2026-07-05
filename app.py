@@ -263,9 +263,8 @@ if st.sidebar.button("Ingest & Index Documents"):
                 st.session_state.vector_store.add_chunks(chunks)
                 
                 total_chunks = len(chunks)
-                for c_idx, chunk in enumerate(chunks):
-                    status_text.text(f"Extracting {c_idx+1}/{total_chunks}...")
-                    st.session_state.graph_store.add_relations_from_chunk(chunk)
+                status_text.text(f"Extracting knowledge graph ({total_chunks} chunks, 2 parallel streams)...")
+                st.session_state.graph_store.add_relations_from_chunks_parallel(chunks, max_workers=2)
                 
                 # Register source in registry
                 page_count = max([c.get("page", 1) for c in chunks]) if chunks else 1
