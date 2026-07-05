@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "ruflo-swarm": {
+      "command": "npx",
+      "args": ["ruflo@latest", "mcp", "start"]
+    },
+    "hermes-brain": {
+      "command": "wsl",
+      "args": ["/home/solunkepranav/.hermes/hermes-agent/venv/bin/hermes", "mcp", "serve"]
+    }
+  }
+}

@@ -8,6 +8,11 @@ data/
 output/
 temp_uploads/
 
+# Swarm database files
+.swarm/*.db
+.swarm/*.db-shm
+.swarm/*.db-wal
+
 # Auto-generated visualization libraries by pyvis
 lib/
 
