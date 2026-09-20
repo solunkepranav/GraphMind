@@ -28,14 +28,23 @@ class SourceRegistry:
         except Exception as e:
             print(f"Error saving source registry: {e}")
 
-    def register_source(self, filename: str, file_type: str, chunk_count: int, page_count: int, size_bytes: int):
+    def register_source(
+        self,
+        filename: str,
+        file_type: str,
+        chunk_count: int,
+        page_count: int,
+        size_bytes: int,
+        file_hash: str = None
+    ):
         self.load()
-        # Check if already exists, update or add
+        # Check if already exists by filename or hash, update or add
         existing = next((s for s in self.data["sources"] if s["filename"] == filename), None)
         if existing:
             existing["chunk_count"] = chunk_count
             existing["page_count"] = page_count
             existing["size_bytes"] = size_bytes
+            existing["file_hash"] = file_hash
             existing["ingested_at"] = datetime.datetime.now().isoformat()
         else:
             source_id = os.urandom(4).hex()  # Simple short unique ID
@@ -43,12 +52,20 @@ class SourceRegistry:
                 "id": source_id,
                 "filename": filename,
                 "file_type": file_type,
+                "file_hash": file_hash,
                 "ingested_at": datetime.datetime.now().isoformat(),
                 "chunk_count": chunk_count,
                 "page_count": page_count,
                 "size_bytes": size_bytes
             })
         self.save()
+
+    def is_duplicate_file(self, file_hash: str) -> dict | None:
+        """Returns existing source record if file_hash matches an already-indexed document."""
+        if not file_hash:
+            return None
+        self.load()
+        return next((s for s in self.data["sources"] if s.get("file_hash") == file_hash), None)
 
     def list_sources(self) -> list[dict]:
         self.load()

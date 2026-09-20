@@ -3,13 +3,38 @@ from src import config
 from src import llm
 from src.vector_store import VectorStore
 from src.graph_store import GraphStore
-from src.mistake_ledger import MistakeLedger
+from src.retrieval import RetrievalOrchestrator, RetrievalResult
+from src.mistake_ledger import MistakeLedger, calibrate_confidence
+from src.security import PromptInjectionDetector
+from src.cache import LRUCache
 
 class QueryAgent:
-    def __init__(self, vector_store: VectorStore, graph_store: GraphStore):
+    def __init__(
+        self,
+        vector_store: VectorStore,
+        graph_store: GraphStore,
+        bm25_store=None,
+        orchestrator: RetrievalOrchestrator = None,
+        cache_ttl_seconds: float = 3600
+    ):
         self.vector_store = vector_store
         self.graph_store = graph_store
+        self.bm25_store = bm25_store
+        if orchestrator is not None:
+            self.orchestrator = orchestrator
+        else:
+            self.orchestrator = RetrievalOrchestrator(
+                vector_store=vector_store,
+                bm25_store=bm25_store,
+                graph_store=graph_store
+            )
         self.ledger = MistakeLedger()
+        self.security_detector = PromptInjectionDetector()
+        self.cache = LRUCache(maxsize=300, ttl_seconds=cache_ttl_seconds)
+
+    def clear_cache(self):
+        """Clears the query response cache."""
+        self.cache.clear()
 
     def route_query(self, query: str) -> dict:
         """Classifies the query into SIMPLE, COMPLEX, GLOBAL, or HYBRID."""
@@ -28,60 +53,44 @@ class QueryAgent:
 
     def answer_query(self, query: str, source_filter: list[str] = None) -> dict:
         """Processes the query using agentic routing, retrieves context, and synthesizes an answer."""
+        # 0. Check cache
+        cache_key = f"{query.strip().lower()}|{','.join(sorted(source_filter or []))}"
+        cached_result = self.cache.get(cache_key)
+        if cached_result is not None:
+            res = dict(cached_result)
+            res["cached"] = True
+            return res
+
         # 1. Route the query
         route = self.route_query(query)
         category = route.get("category", "HYBRID")
         reasoning = route.get("reasoning", "")
 
-        vector_chunks = []
-        graph_relations = []
+        top_k_map = {
+            "SIMPLE": 5,
+            "COMPLEX": 4,
+            "GLOBAL": 8,
+            "HYBRID": 5
+        }
+        top_k = top_k_map.get(category, 5)
 
-        # 2. Retrieve Context based on Category
-        if category == "SIMPLE":
-            vector_chunks = self.vector_store.search(query, top_k=5, source_filter=source_filter)
-        elif category == "COMPLEX":
-            # Search graph seeds
-            seeds = self.graph_store.find_seeds_in_query(query)
-            # If no seeds directly in query, search vector store first to extract seed nodes
-            if not seeds:
-                top_chunks = self.vector_store.search(query, top_k=3, source_filter=source_filter)
-                for chunk in top_chunks:
-                    chunk_seeds = self.graph_store.find_seeds_in_query(chunk["text"])
-                    seeds.extend(chunk_seeds)
-                seeds = list(set(seeds))
-                
-            graph_relations = self.graph_store.traverse_subgraph(seeds, max_depth=2, source_filter=source_filter)
-        elif category == "GLOBAL":
-            # Global queries get both vector search chunks (broad semantic overview)
-            # and high-degree hub relations from the graph
-            vector_chunks = self.vector_store.search(query, top_k=8, source_filter=source_filter)
-            # Find top high-degree nodes in the graph to get core relations
-            high_deg_nodes = [node for node, deg in sorted(self.graph_store.graph.degree(), key=lambda x: x[1], reverse=True)[:5]]
-            graph_relations = self.graph_store.traverse_subgraph(high_deg_nodes, max_depth=1, source_filter=source_filter)
-        else:  # HYBRID
-            vector_chunks = self.vector_store.search(query, top_k=4, source_filter=source_filter)
-            seeds = self.graph_store.find_seeds_in_query(query)
-            if not seeds:
-                for chunk in vector_chunks[:2]:
-                    chunk_seeds = self.graph_store.find_seeds_in_query(chunk["text"])
-                    seeds.extend(chunk_seeds)
-                seeds = list(set(seeds))
-            graph_relations = self.graph_store.traverse_subgraph(seeds, max_depth=2, source_filter=source_filter)
+        # 2. Retrieve Context based on Category via unified RetrievalOrchestrator
+        retrieval_result = self.orchestrator.retrieve(
+            query=query,
+            query_type=category,
+            top_k=top_k,
+            source_filter=source_filter
+        )
+        vector_chunks = retrieval_result.chunks
+        graph_relations = retrieval_result.graph_edges
 
-        # 3. Format Context
-        vector_context = ""
-        for idx, chunk in enumerate(vector_chunks):
-            vector_context += f"[{idx+1}] Source: {chunk['source']} (Page: {chunk['page']})\nContent: {chunk['text']}\n\n"
-
-        graph_context = ""
-        for idx, rel in enumerate(graph_relations):
-            sources = ", ".join(rel['sources'])
-            pages = ", ".join(rel['pages'])
-            graph_context += f"- Relation: ({rel['subject']}) --[{rel['relation']}]--> ({rel['object']}) [Sources: {sources}, Pages: {pages}]\n"
-
-        if not vector_context.strip():
+        # 3. Format Context using PromptInjectionDetector for security isolation
+        vector_context, graph_context = self.security_detector.format_safe_context(
+            vector_chunks, graph_relations
+        )
+        if not vector_chunks:
             vector_context = "No relevant text chunks retrieved."
-        if not graph_context.strip():
+        if not graph_relations:
             graph_context = "No relevant knowledge graph relations retrieved."
 
         # 4. Generate Answer and Self-Reflected Confidence (with Critic Guard)
@@ -103,7 +112,7 @@ Question: {query}
 Instructions:
 1. Rely ONLY on the provided context. If the answer cannot be found in the context, say "I cannot find the answer in the provided documents."
 2. Cite your sources.
-   - For text chunks, cite them using bracket numbers matching their index like [1] or [2] (which map to Doc: DocumentName, Page: PageNum).
+   - For text chunks, cite them using document name and page: [Doc: DocumentName, Page: PageNum] or bracket index.
    - For graph relations, cite them like: (Subject -> relation -> Object).
 3. Synthesize a coherent, professional answer in markdown.
 4. Output your response ONLY as a JSON object with 'answer' and 'confidence' fields. Do not use markdown wrappers.
@@ -144,11 +153,25 @@ Instructions:
             else:
                 break # Passed validation
 
-        return {
+        # Compute calibrated confidence from normalized observable feature signals
+        calibration = calibrate_confidence(
+            raw_llm_score=confidence,
+            answer=answer,
+            retrieved_chunks=vector_chunks,
+            graph_relations=graph_relations
+        )
+
+        final_result = {
             "answer": answer,
-            "confidence": confidence,
+            "confidence": calibration["calibrated_score"],
+            "raw_confidence": confidence,
+            "confidence_signals": calibration["signals"],
             "category": category,
             "reasoning": reasoning,
             "vector_chunks": vector_chunks,
-            "graph_relations": graph_relations
+            "graph_relations": graph_relations,
+            "retrieval_metadata": retrieval_result.metadata,
+            "cached": False
         }
+        self.cache.set(cache_key, final_result)
+        return final_result

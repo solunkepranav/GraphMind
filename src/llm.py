@@ -128,12 +128,17 @@ def generate_text(prompt: str, system_instruction: str = None, task: str = "fast
         try:
             response = requests.post(url, json=payload, timeout=90)
             if response.status_code == 404:
-                raise ValueError(f"Model '{model_name}' was not found in your Ollama server. Please run 'ollama pull {model_name}' or wait for background download.")
+                raise ValueError(f"Model '{model_name}' was not found in your Ollama server. Please run 'ollama pull {model_name}'.")
             response.raise_for_status()
             return response.json()["response"]
+        except requests.exceptions.ConnectionError:
+            raise ConnectionError(
+                f"Cannot connect to local Ollama service at {cfg['ollama_url']}. "
+                "Please ensure Ollama is running ('ollama serve') or configure a Gemini API Key in settings."
+            )
         except requests.exceptions.RequestException as e:
             if hasattr(e, 'response') and e.response is not None and e.response.status_code == 404:
-                raise ValueError(f"Model '{model_name}' was not found in your Ollama server. Please run 'ollama pull {model_name}' or wait for background download.")
+                raise ValueError(f"Model '{model_name}' was not found in your Ollama server. Please run 'ollama pull {model_name}'.")
             raise e
 
 def clean_json_string(text: str) -> str:
@@ -239,6 +244,12 @@ def get_embeddings(texts: list[str]) -> list[list[float]]:
             "input": texts,
             "keep_alive": "1m"
         }
-        response = requests.post(url, json=payload, timeout=90)
-        response.raise_for_status()
-        return response.json()["embeddings"]
+        try:
+            response = requests.post(url, json=payload, timeout=90)
+            response.raise_for_status()
+            return response.json()["embeddings"]
+        except requests.exceptions.ConnectionError:
+            raise ConnectionError(
+                f"Cannot connect to local Ollama service at {cfg['ollama_url']}. "
+                "Please ensure Ollama is running ('ollama serve') or configure a Gemini API Key in settings."
+            )
