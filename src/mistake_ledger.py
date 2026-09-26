@@ -3,6 +3,52 @@ import json
 import datetime
 from src import config
 
+import re
+
+def calibrate_confidence(
+    raw_llm_score: int | float,
+    answer: str,
+    retrieved_chunks: list[dict],
+    graph_relations: list[dict]
+) -> dict:
+    """Computes a calibrated confidence score (0-100) using normalized feature signals
+    rather than relying solely on raw LLM self-reflection.
+    """
+    # 1. Normalized LLM self-reflection signal
+    c_llm = max(0.0, min(1.0, float(raw_llm_score) / 100.0))
+
+    # 2. Retrieval coverage signal
+    c_ret = 1.0 if len(retrieved_chunks) >= 3 else (len(retrieved_chunks) / 3.0)
+
+    # 3. Graph relations signal
+    c_graph = 1.0 if len(graph_relations) >= 1 else 0.4
+
+    # 4. Citation grounding signal
+    citations_found = len(re.findall(r"\[(?:\d+|Doc:.*?)\]", answer))
+    if citations_found >= 2:
+        c_cite = 1.0
+    elif citations_found == 1:
+        c_cite = 0.7
+    else:
+        if "cannot find the answer" in answer.lower():
+            c_cite = 1.0
+        else:
+            c_cite = 0.2
+
+    # Weighted combination
+    calibrated_val = (0.35 * c_cite) + (0.25 * c_ret) + (0.20 * c_graph) + (0.20 * c_llm)
+    final_score = int(round(calibrated_val * 100))
+
+    return {
+        "calibrated_score": final_score,
+        "signals": {
+            "citation_grounding": round(c_cite, 2),
+            "retrieval_coverage": round(c_ret, 2),
+            "graph_evidence": round(c_graph, 2),
+            "raw_llm": round(c_llm, 2)
+        }
+    }
+
 class MistakeLedger:
     def __init__(self):
         self.ledger_path = config.MISTAKE_LEDGER_PATH

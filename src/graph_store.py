@@ -1,18 +1,40 @@
 import os
 import json
 import threading
+import time
 import networkx as nx
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pyvis.network import Network
 from src import config
 from src import llm
 
+RELATION_CARDINALITY = {
+    "founded_in": "one",
+    "born_in": "one",
+    "headquartered_in": "one",
+    "died_in": "one",
+    "ceo_of": "one",
+    "president_of": "one",
+    "author_of": "many",
+    "invested_in": "many",
+    "features": "many",
+    "contradicts": "many",
+    "supports": "many",
+    "works_at": "many",
+    "located_in": "many"
+}
+
 class GraphStore:
     def __init__(self):
         self.graph_path = os.path.join(config.GRAPH_DIR, "knowledge_graph.json")
         self.graph = nx.DiGraph()
+        self.contradictions = []
         self._write_lock = threading.Lock()  # Serialises graph mutations during parallel ingestion
         self.load()
+
+    def get_contradictions(self) -> list[dict]:
+        """Returns all detected relation contradictions."""
+        return list(self.contradictions)
 
     def load(self):
         """Loads the graph from a JSON file if it exists."""
@@ -26,18 +48,22 @@ class GraphStore:
                     self.graph.add_node(node["id"], **node.get("data", {}))
                 for edge in data.get("edges", []):
                     self.graph.add_edge(edge["source"], edge["target"], **edge.get("data", {}))
+                self.contradictions = data.get("contradictions", [])
                 print(f"Loaded graph with {self.graph.number_of_nodes()} nodes and {self.graph.number_of_edges()} edges.")
             except Exception as e:
                 print(f"Error loading graph, initializing empty graph: {e}")
                 self.graph = nx.DiGraph()
+                self.contradictions = []
         else:
             self.graph = nx.DiGraph()
+            self.contradictions = []
 
     def save(self):
         """Saves the graph to a JSON file."""
         data = {
             "nodes": [{"id": node, "data": self.graph.nodes[node]} for node in self.graph.nodes],
-            "edges": [{"source": u, "target": v, "data": self.graph.edges[u, v]} for u, v in self.graph.edges]
+            "edges": [{"source": u, "target": v, "data": self.graph.edges[u, v]} for u, v in self.graph.edges],
+            "contradictions": self.contradictions
         }
         try:
             with open(self.graph_path, "w", encoding="utf-8") as f:
@@ -88,24 +114,57 @@ class GraphStore:
                         self.graph.add_node(subj, type="Entity", degree=0)
                     if not self.graph.has_node(obj):
                         self.graph.add_node(obj, type="Entity", degree=0)
+
+                    evidence_entry = {
+                        "source": source,
+                        "page": page,
+                        "chunk_id": chunk.get("chunk_id", f"{source}_p{page}"),
+                        "text": text[:300],
+                        "confidence": 1.0
+                    }
+
+                    # Contradiction check for "one" cardinality relations
+                    if RELATION_CARDINALITY.get(rel) == "one":
+                        for neighbor in list(self.graph.successors(subj)):
+                            if neighbor != obj:
+                                existing_edge = self.graph.edges[subj, neighbor]
+                                if existing_edge.get("relation") == rel:
+                                    contradiction_event = {
+                                        "subject": subj,
+                                        "relation": rel,
+                                        "existing_object": neighbor,
+                                        "new_object": obj,
+                                        "existing_sources": existing_edge.get("sources", []),
+                                        "new_source": source
+                                    }
+                                    if contradiction_event not in self.contradictions:
+                                        self.contradictions.append(contradiction_event)
                     
-                    # Add or update edge
+                    # Add or update edge with evidence span
+                    page_str = f"{source}:p{page}"
                     if self.graph.has_edge(subj, obj):
                         edge_data = self.graph.edges[subj, obj]
                         if source not in edge_data.get("sources", []):
                             edge_data["sources"].append(source)
                         edge_data["count"] = edge_data.get("count", 1) + 1
-                        page_str = f"{source}:p{page}"
                         if page_str not in edge_data.get("pages", []):
                             edge_data["pages"].append(page_str)
+                        if "evidence" not in edge_data:
+                            edge_data["evidence"] = []
+                        edge_data["evidence"].append(evidence_entry)
+                        edge_data["support_count"] = len(edge_data["evidence"])
+                        edge_data["source_count"] = len(set(e["source"] for e in edge_data["evidence"]))
                     else:
                         self.graph.add_edge(
                             subj,
                             obj,
                             relation=rel,
                             sources=[source],
-                            pages=[f"{source}:p{page}"],
-                            count=1
+                            pages=[page_str],
+                            count=1,
+                            evidence=[evidence_entry],
+                            support_count=1,
+                            source_count=1
                         )
                 
                 # Update degree attribute for visualization sizing
@@ -115,15 +174,19 @@ class GraphStore:
         except Exception as e:
             print(f"Error extracting relations from chunk: {e}")
 
-    def add_relations_from_chunks_parallel(self, chunks: list, max_workers: int = 2):
+    def add_relations_from_chunks_parallel(self, chunks: list, max_workers: int = 2, progress_callback=None):
         """
         Processes a list of chunks in parallel using ThreadPoolExecutor.
         max_workers=2 is optimal for an RTX 3050 4GB:
           - Two gemma3:1b (0.8 GB each) fit in VRAM simultaneously.
           - LLM inference runs concurrently; graph writes are serialised via _write_lock.
+        Optional progress_callback(completed, total, elapsed_seconds) called on each finished chunk.
         """
         if not chunks:
             return
+        total = len(chunks)
+        start_time = time.time()
+        completed = 0
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = {
                 executor.submit(self.add_relations_from_chunk, chunk): i
@@ -134,20 +197,38 @@ class GraphStore:
                     future.result()
                 except Exception as e:
                     print(f"Parallel extraction error on chunk {futures[future]}: {e}")
+                completed += 1
+                if progress_callback:
+                    elapsed = time.time() - start_time
+                    progress_callback(completed, total, elapsed)
 
-    def traverse_subgraph(self, seed_entities: list[str], max_depth: int = 1, source_filter: list[str] = None) -> list[dict]:
+    def traverse_subgraph(
+        self,
+        seed_entities: list[str],
+        max_depth: int = 2,
+        source_filter: list[str] = None,
+        max_relations: int = 15
+    ) -> list[dict]:
         """
         Traverses the graph starting from seed entities up to max_depth,
-        returning a list of relations (edges) found, optionally filtered by sources.
+        ranking paths by support count and depth proximity, optionally filtered by sources.
         """
         visited_nodes = set()
         retrieved_relations = []
+        rel_signatures = {}
         
-        # Normalize seed entities
-        normalized_seeds = [seed.strip().title() for seed in seed_entities]
+        # Normalize seed entities matching existing graph nodes case-insensitively
+        normalized_seeds = []
+        node_lookup = {node.lower(): node for node in self.graph.nodes}
+        for seed in seed_entities:
+            s_clean = seed.strip()
+            if s_clean in self.graph:
+                normalized_seeds.append(s_clean)
+            elif s_clean.lower() in node_lookup:
+                normalized_seeds.append(node_lookup[s_clean.lower()])
         
         # Queue format: (node, depth)
-        queue = [(node, 0) for node in normalized_seeds if self.graph.has_node(node)]
+        queue = [(node, 0) for node in set(normalized_seeds) if self.graph.has_node(node)]
         
         for node, _ in queue:
             visited_nodes.add(node)
@@ -158,67 +239,84 @@ class GraphStore:
         
         for depth in range(max_depth):
             for node, d in current_queue:
-                # Find all neighbors (incoming and outgoing)
-                # Outgoing edges
+                # 1. Outgoing edges
                 for neighbor in self.graph.successors(node):
                     edge_data = self.graph.edges[node, neighbor]
                     sources = edge_data.get("sources", [])
                     pages = edge_data.get("pages", [])
                     
                     if source_filter is not None:
-                        # Filter sources and pages based on source_filter
                         filtered_sources = [s for s in sources if s in source_filter]
                         if not filtered_sources:
                             continue
                         filtered_pages = [p for p in pages if any(p.startswith(s + ":p") for s in source_filter)]
                         sources = filtered_sources
                         pages = filtered_pages
-                        
+
+                    # Path ranking formula: support count weighted by inverse depth
+                    path_score = round((len(sources) * 2.0) / (d + 1), 3)
+                    sig = (node, edge_data.get("relation", "connected_to"), neighbor)
+                    
                     rel_dict = {
                         "subject": node,
                         "relation": edge_data.get("relation", "connected_to"),
                         "object": neighbor,
                         "sources": sources,
                         "pages": pages,
-                        "count": len(sources)
+                        "count": len(sources),
+                        "depth": d,
+                        "score": path_score
                     }
-                    if rel_dict not in retrieved_relations:
-                        retrieved_relations.append(rel_dict)
+
+                    if sig not in rel_signatures or path_score > rel_signatures[sig]["score"]:
+                        rel_signatures[sig] = rel_dict
+
                     if neighbor not in visited_nodes:
                         visited_nodes.add(neighbor)
                         next_queue.append((neighbor, d + 1))
-                # Incoming edges
+
+                # 2. Incoming edges
                 for predecessor in self.graph.predecessors(node):
                     edge_data = self.graph.edges[predecessor, node]
                     sources = edge_data.get("sources", [])
                     pages = edge_data.get("pages", [])
                     
                     if source_filter is not None:
-                        # Filter sources and pages based on source_filter
                         filtered_sources = [s for s in sources if s in source_filter]
                         if not filtered_sources:
                             continue
                         filtered_pages = [p for p in pages if any(p.startswith(s + ":p") for s in source_filter)]
                         sources = filtered_sources
                         pages = filtered_pages
-                        
+
+                    path_score = round((len(sources) * 2.0) / (d + 1), 3)
+                    sig = (predecessor, edge_data.get("relation", "connected_to"), node)
+
                     rel_dict = {
                         "subject": predecessor,
                         "relation": edge_data.get("relation", "connected_to"),
                         "object": node,
                         "sources": sources,
                         "pages": pages,
-                        "count": len(sources)
+                        "count": len(sources),
+                        "depth": d,
+                        "score": path_score
                     }
-                    if rel_dict not in retrieved_relations:
-                        retrieved_relations.append(rel_dict)
+
+                    if sig not in rel_signatures or path_score > rel_signatures[sig]["score"]:
+                        rel_signatures[sig] = rel_dict
+
                     if predecessor not in visited_nodes:
                         visited_nodes.add(predecessor)
                         next_queue.append((predecessor, d + 1))
+
             current_queue = next_queue
             next_queue = []
             
-        return retrieved_relations
+        retrieved_relations = list(rel_signatures.values())
+        # Sort descending by path score
+        retrieved_relations.sort(key=lambda x: x["score"], reverse=True)
+        return retrieved_relations[:max_relations]
 
     def find_seeds_in_query(self, query: str) -> list[str]:
         """Matches nodes in the graph against words/phrases in the user's query."""
@@ -407,7 +505,7 @@ class GraphStore:
         return output_path
 
     def delete_by_source(self, source_name: str):
-        """Removes all edges and orphan nodes associated with the deleted source."""
+        """Removes all edges, evidence spans, contradictions, and orphan nodes associated with the deleted source."""
         edges_to_remove = []
         edges_to_modify = []
         
@@ -415,6 +513,7 @@ class GraphStore:
             edge_data = self.graph.edges[u, v]
             sources = edge_data.get("sources", [])
             pages = edge_data.get("pages", [])
+            evidence = edge_data.get("evidence", [])
             
             if source_name in sources:
                 new_sources = [s for s in sources if s != source_name]
@@ -422,17 +521,21 @@ class GraphStore:
                     edges_to_remove.append((u, v))
                 else:
                     new_pages = [p for p in pages if not p.startswith(source_name + ":p")]
-                    edges_to_modify.append((u, v, new_sources, new_pages))
+                    new_evidence = [e for e in evidence if e.get("source") != source_name]
+                    edges_to_modify.append((u, v, new_sources, new_pages, new_evidence))
                     
         # Remove edges
         for u, v in edges_to_remove:
             self.graph.remove_edge(u, v)
             
         # Modify remaining edges
-        for u, v, new_sources, new_pages in edges_to_modify:
+        for u, v, new_sources, new_pages, new_evidence in edges_to_modify:
             self.graph.edges[u, v]["sources"] = new_sources
             self.graph.edges[u, v]["pages"] = new_pages
             self.graph.edges[u, v]["count"] = len(new_sources)
+            self.graph.edges[u, v]["evidence"] = new_evidence
+            self.graph.edges[u, v]["support_count"] = len(new_evidence)
+            self.graph.edges[u, v]["source_count"] = len(new_sources)
             
         # Remove orphan nodes (nodes with 0 degree)
         orphans = list(nx.isolates(self.graph))
@@ -441,12 +544,19 @@ class GraphStore:
         # Recompute degrees for visualization
         for node in self.graph.nodes:
             self.graph.nodes[node]["degree"] = self.graph.degree(node)
+
+        # Filter contradictions referencing the deleted source
+        self.contradictions = [
+            c for c in self.contradictions
+            if c.get("new_source") != source_name and source_name not in c.get("existing_sources", [])
+        ]
             
         self.save()
 
     def reset(self):
-        """Clears the graph."""
+        """Clears the graph and detected contradictions."""
         self.graph = nx.DiGraph()
+        self.contradictions = []
         if os.path.exists(self.graph_path):
             try:
                 os.remove(self.graph_path)

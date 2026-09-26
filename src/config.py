@@ -11,6 +11,7 @@ GRAPH_DIR = os.path.join(DATA_DIR, "graphs")
 OUTPUT_DIR = os.path.join(BASE_DIR, "output")
 MISTAKE_LEDGER_PATH = os.path.join(DATA_DIR, "mistake_ledger.json")
 SOURCE_REGISTRY_PATH = os.path.join(DATA_DIR, "source_registry.json")
+BM25_INDEX_PATH = os.path.join(DATA_DIR, "bm25_index.pkl")
 
 # Ensure directories exist
 for d in [DATA_DIR, DB_DIR, GRAPH_DIR, OUTPUT_DIR]:
@@ -29,6 +30,16 @@ GEMINI_EMBED_MODEL = os.getenv("GEMINI_EMBED_MODEL", "text-embedding-004")
 # Chunking Config — reduced for parallel dual-stream VRAM safety (2x gemma3:1b @ 4GB RTX 3050)
 CHUNK_SIZE = 500
 CHUNK_OVERLAP = 100
+
+# Retrieval & Hybrid Search Config
+BM25_TOP_K = int(os.getenv("BM25_TOP_K", "20"))
+DENSE_TOP_K = int(os.getenv("DENSE_TOP_K", "20"))
+
+# Reranker Config (CPU default for 4GB RTX 3050 VRAM safety)
+RERANKER_MODEL = os.getenv("RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L6-v2")
+RERANKER_DEVICE = os.getenv("RERANKER_DEVICE", "cpu")
+RERANKER_TOP_N = int(os.getenv("RERANKER_TOP_N", "5"))
+ENABLE_RERANKER = os.getenv("ENABLE_RERANKER", "true").lower() == "true"
 
 # Prompts
 ENTITY_EXTRACTION_PROMPT = """You are an expert knowledge engineer. Your task is to extract semantic entities and their relationships from the given text chunk.
@@ -81,3 +92,8 @@ Instructions:
 3. Synthesize a coherent, professional answer in markdown.
 4. Be precise and truthful. Do not hallucinate.
 """
+
+OKF_VALIDATION_RULES = """IMPORTANT: The following are known past failures and corrections from prior queries. Do NOT repeat these mistakes:
+{historical_failures}
+Ensure your output strictly adheres to factual context and correct citations."""
+

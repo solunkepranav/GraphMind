@@ -1,35 +1,40 @@
-# 🧠 GraphMind: Knowledge Notebook
+# 🧠 GraphMind 2.0: Enterprise Hybrid RAG & Knowledge Graph Engine
 
-GraphMind is an advanced local Hybrid RAG (Retrieval-Augmented Generation) and Knowledge Graph Q&A system. Inspired by **NotebookLM**, it integrates a dark bento-grid theme, offline-first execution, multi-format document ingestion, and source-scoped context filtering with dynamic task-based model routing.
+GraphMind is an advanced local Hybrid RAG (Retrieval-Augmented Generation) and Knowledge Graph reasoning system. Inspired by **NotebookLM**, it combines lexical search, dense vector embeddings, cross-encoder neural reranking, graph traversal, and prompt injection defense into a unified offline-first architecture.
+
+Complete architectural details and data-flow diagrams are documented in [docs/architecture.md](docs/architecture.md).
 
 ---
 
 ## 🌟 Key Features
 
-1. **NotebookLM-Style Source Panel**:
-   * Centralized left sidebar to upload, preview, and toggle active documents.
-   * Scopes vector search context and knowledge graph traversals strictly to selected sources.
-   * Clean source deletion: dropping a file clears its chunks from ChromaDB and sweeps its unique edges/orphaned nodes from the Knowledge Graph.
-   * Inline previewers to view chunk summaries of ingested files.
+### 1. 🔍 Dual-Path Hybrid Retrieval & Reranking
+* **Lexical Search (BM25Plus)**: Exact keyword and token-preserved code/identifier matching using strictly positive IDF weighting.
+* **Semantic Vectors (ChromaDB + Nomic)**: Deep semantic retrieval via `nomic-embed-text`.
+* **Reciprocal Rank Fusion (RRF)**: Merges sparse and dense candidates using standard RRF ($k=60$).
+* **Cross-Encoder Neural Reranking**: CPU-offloaded `cross-encoder/ms-marco-MiniLM-L6-v2` reranks top candidates for precision while protecting GPU VRAM.
+* **Structural Graph Retrieval**: Separated from chunk scoring; traverses the Knowledge Graph via depth-decay path ranking (`score = (support * 2) / (depth + 1)`) to pull relational context.
 
-2. **Multi-Format Ingestion**:
-   * Out-of-the-box support for **PDF (`fitz` / PyMuPDF)**, **Word (`.docx`)**, **PowerPoint (`.pptx`)**, and **Images (`.jpg`, `.png`, `.jpeg`)**.
-   * Vision-based OCR/descriptions (via local `moondream` or cloud `gemini-2.5-flash`) for scanned diagrams and images.
+### 2. 🕸️ Knowledge Graph & Contradiction Detection
+* **Verbatim Evidence Spans**: Graph edges track exact text quotes, source file, page number, and chunk ID.
+* **Cardinality Constraints**: Enforces domain relationships (e.g. `FOUNDED_IN` has `one` cardinality).
+* **Contradiction Alerts**: Automatically identifies conflicting triples across ingested sources and alerts the user in both the UI and REST API.
 
-3. **Dynamic Task-Based Model Routing**:
-   * Routes processing to the most efficient local model to minimize VRAM usage on laptop GPUs:
-     * **Fast (Entity Extraction & Router):** `gemma3:1b` (0.8 GB, runs 100% in VRAM at 70+ tokens/sec, speeding up ingestion by ~10x).
-     * **Reasoning/Validation (Q&A Synthesis):** `gemma3:4b` (3.3 GB, runs on GPU at 26+ tokens/sec for rich context synthesis).
-     * **Vision (Multimodal OCR):** `moondream:latest` (1.7 GB).
-     * **Embedding (Semantic Vectors):** `nomic-embed-text` (274 MB).
+### 3. 🎯 Calibrated Confidence Scoring
+* Replaces uncalibrated LLM self-scoring with a deterministic 4-signal weighted formula:
+  $$\text{Confidence} = 0.35 \times \text{Citation Grounding} + 0.25 \times \text{Retrieval Coverage} + 0.20 \times \text{Graph Evidence} + 0.20 \times \text{Model Self-Score}$$
+* Penalizes hallucinated citations or ungrounded assertions while rewarding factual source alignment.
 
-4. **Interactive Persistent Chat UX**:
-   * Chat message conversation thread with message history.
-   * Instant markdown answer exports (`.md` file downloads) and a "Clear History" button.
+### 4. 🛡️ Security & Access Control
+* **Prompt Injection Detection**: Scans retrieved chunks for injection patterns without mutating or stripping source text.
+* **XML Context Boundary Delimiters**: Isolates untrusted text inside `<untrusted_document>` and `<retrieved_documents>` boundary tags.
+* **Strict ACL Enforcement**: Ensures access rules are applied as `effective_sources = ACL_allowed ∩ user_selected`.
 
-5. **Clarity-Optimized Knowledge Graphs**:
-   * Automatically extracts entity triples `(Subject, Relation, Object)`.
-   * Prunes duplicate/weak edges and caps interactive pyvis renderings to the top 80 most central nodes to prevent browser freezes.
+### 5. ⚡ Production-Ready Observability & Caching
+* **Structured Query Audit Logging**: Appends timestamped JSONL records to `data/audit_log.jsonl` tracking queries, latency, sources, and calibrated confidence.
+* **Thread-Safe LRU Cache**: Memory-efficient query caching with configurable TTL expiration.
+* **Headless REST API**: High-performance FastAPI backend with endpoints for `/health`, `/query`, `/sources`, `/audit`, and `/contradictions`.
+* **Standard Evaluation Harness**: Evaluates retrieval accuracy (`Recall@K`, `HitRate@K`, `MRR`, `NDCG@K`) over ground-truth benchmark questions.
 
 ---
 
@@ -37,22 +42,37 @@ GraphMind is an advanced local Hybrid RAG (Retrieval-Augmented Generation) and K
 
 ```
 GraphMind/
-├── .streamlit/
-│   └── config.toml         # Locked dark mode UI theme configuration
+├── docs/
+│   ├── architecture.md     # Enterprise architecture specification & Mermaid diagrams
+│   └── baseline.md         # Pre-upgrade safety and capabilities baseline
+├── evaluation/
+│   ├── README.md           # Evaluation benchmark documentation
+│   ├── questions.jsonl     # 20 ground-truth questions with evidence schemas
+│   └── run_eval.py         # Automated retrieval evaluation runner
 ├── src/
 │   ├── __init__.py         # Package initializer
-│   ├── agents.py           # Query routing & retrieval coordination
-│   ├── config.py           # Settings, paths, and model prompt templates
-│   ├── evaluation.py       # Metrics and benchmarking pipelines
-│   ├── graph_store.py      # NetworkX store and pyvis visualization engine
-│   ├── ingestion.py        # Document text extraction and splitting
+│   ├── agents.py           # QueryAgent & Synthesizer with calibrated confidence
+│   ├── api.py              # FastAPI REST endpoints
+│   ├── bm25_store.py       # BM25Plus sparse index & persistence
+│   ├── cache.py            # Thread-safe LRU cache with TTL
+│   ├── config.py           # Model settings, paths, and retrieval hyperparameters
+│   ├── evaluation.py       # Metrics calculator (Recall, HitRate, MRR, NDCG)
+│   ├── graph_store.py      # NetworkX store, path ranking, and contradiction engine
+│   ├── ingestion.py        # Multi-format parsing, chunk enrichment, and hashing
 │   ├── llm.py              # LLM connectors (Ollama & Gemini API)
-│   ├── source_registry.py  # JSON registry tracking active files
-│   └── vector_store.py     # ChromaDB client & vector embeddings manager
-├── app.py                  # Main Streamlit dashboard interface
+│   ├── mistake_ledger.py   # Calibrated confidence & error ledger
+│   ├── observability.py    # QueryAuditLogger JSONL recorder
+│   ├── permissions.py      # AccessControlManager for source filtering
+│   ├── reranker.py         # CPU CrossEncoder neural reranker
+│   ├── retrieval.py        # RetrievalOrchestrator (RRF + Graph + Rerank)
+│   ├── security.py         # PromptInjectionDetector & safe context formatting
+│   ├── source_registry.py  # File tracking, SHA256 hashes, and deduplication
+│   └── vector_store.py     # ChromaDB dense vector store
+├── tests/                  # 39 model-free unit tests
+├── app.py                  # Streamlit dashboard interface
 ├── requirements.txt        # Python library dependencies
-├── .env.example            # Environment variables configuration template
-└── .gitignore              # Files excluded from version control
+├── pyproject.toml          # Pytest and tool configurations
+└── README.md
 ```
 
 ---
@@ -60,9 +80,10 @@ GraphMind/
 ## 🚀 Getting Started
 
 ### 1. Prerequisites
-Make sure you have Python 3.10+ installed on your system.
+* Python 3.10+ (tested on Python 3.13)
+* **[Ollama](https://ollama.com/)** for local model execution.
 
-To run models locally with GPU acceleration, install **[Ollama](https://ollama.com/)** and pull the following models:
+Pull the recommended local models:
 ```bash
 ollama pull gemma3:1b
 ollama pull gemma3:4b
@@ -71,17 +92,23 @@ ollama pull nomic-embed-text
 ```
 
 ### 2. Installation
-Clone the repository and install dependencies:
+Clone the repository and install dependencies in a virtual environment:
 ```bash
+python -m venv venv
+# On Windows:
+.\venv\Scripts\activate
+# On Linux/macOS:
+source venv/bin/activate
+
 pip install -r requirements.txt
 ```
 
-### 3. Environment Setup
-Copy the configuration template to create your `.env` file:
+### 3. Environment Configuration
+Copy the configuration template:
 ```bash
 cp .env.example .env
 ```
-Open `.env` and configure your preferred provider (`ollama` or `gemini`):
+Default configuration targets local Ollama:
 ```ini
 LLM_PROVIDER=ollama
 OLLAMA_BASE_URL=http://localhost:11434
@@ -89,66 +116,56 @@ OLLAMA_MODEL=gemma3:4b
 OLLAMA_EMBED_MODEL=nomic-embed-text
 ```
 
-### 4. Running the Application
-Launch the Streamlit web dashboard:
+### 4. Running the Applications
+
+#### Option A: Interactive Streamlit UI
 ```bash
 streamlit run app.py
 ```
+* Access the notebook at `http://localhost:8501`.
+* Manage documents in the left sidebar, inspect active knowledge graphs, chat with cited answers, view confidence signal breakdowns, and monitor contradiction warnings.
+
+#### Option B: Headless FastAPI Backend
+```bash
+uvicorn src.api:app --host 0.0.0.0 --port 8000 --reload
+```
+* Interactive Swagger documentation at `http://localhost:8000/docs`.
+* Endpoints:
+  - `GET /health` - Health status and active component readiness.
+  - `POST /query` - Execute queries with source filtering, reranking, and audit logging.
+  - `GET /sources` - List all registered documents and metadata.
+  - `GET /audit` - Query the structured execution audit log.
+  - `GET /contradictions` - List detected Knowledge Graph contradictions.
 
 ---
 
-## ⚙️ Development Configs
-You can fine-tune text chunking sizes, model targets, paths, and extraction prompts in the [src/config.py](src/config.py) module.
+## 🧪 Testing & Evaluation
+
+### Run Unit Tests
+The test suite contains 39 isolated, model-free unit tests covering BM25 indexing, Cross-Encoder reranking, RRF fusion, graph traversal, confidence calibration, prompt injection defense, access control, audit logging, and FastAPI endpoints:
+```bash
+pytest
+```
+
+### Run Retrieval Evaluation Benchmark
+Run retrieval metrics (`Recall@K`, `HitRate@K`, `MRR`, `NDCG@K`) against the 20-question ground-truth dataset:
+```bash
+python evaluation/run_eval.py
+```
 
 ---
 
 ## ⚡ Parallel Ingestion Workers — Hardware Guide
 
-GraphMind uses a **parallel dual-stream extraction engine** to build the Knowledge Graph faster. During ingestion, it fires multiple `gemma3:1b` model calls simultaneously, keeping your GPU's CUDA cores saturated at all times instead of sitting idle between chunks.
+GraphMind uses a **parallel dual-stream extraction engine** to build the Knowledge Graph efficiently without exhausting GPU VRAM:
 
-### How to Configure
+| GPU | VRAM | Recommended Workers | Peak VRAM (est.) | VRAM Headroom |
+|---|---|---|---|---|
+| Intel / AMD Integrated | Shared RAM | **1 (CPU only)** | — | System RAM |
+| NVIDIA GTX 1060 / RX 580 | 6 GB | **2** | ~2.6 GB | ~3.4 GB |
+| NVIDIA RTX 3050 (Laptop) | 4 GB | **2** *(default)* | ~2.6 GB | ~1.4 GB |
+| NVIDIA RTX 3060 / 4060 | 8–12 GB | **4** | ~4.8 GB | ~3.2 GB+ |
+| NVIDIA RTX 3080 / 4080 / 4090 | 10–24 GB | **4–6** | ~5.6–6.4 GB | ~5–18 GB |
+| Apple Silicon (M1/M2/M3) | Unified | **3–4** | ~3.5–4.8 GB | System Memory |
 
-Open the sidebar → **Settings** → drag the **Extraction Workers** slider to the value that matches your GPU from the table below.
-
-You can also hard-code the default in `src/config.py` (the sidebar slider overrides this at runtime):
-
-```python
-# src/config.py
-CHUNK_SIZE = 500       # Tokens per chunk — smaller = lower KV Cache VRAM per worker
-CHUNK_OVERLAP = 100    # Overlap between chunks
-```
-
----
-
-### Recommended Workers by Hardware
-
-> **How to read this table:**
-> - **Workers** = number of simultaneous `gemma3:1b` extraction calls.
-> - **VRAM Used** = estimated peak VRAM (model weights × workers + KV Cache overhead per chunk).
-> - **VRAM Headroom** = remaining VRAM for the OS and other tasks.
-> - **Speed Estimate** = approximate time to ingest a 50-page academic PDF (~150 chunks).
-
-| GPU | VRAM | Recommended Workers | VRAM Used (est.) | VRAM Headroom | Speed (50-page PDF) |
-|---|---|---|---|---|---|
-| Intel / AMD Integrated Graphics | Shared RAM | **1 (CPU only)** | — | — | ~25–40 min |
-| NVIDIA GTX 1060 / RX 580 | 6 GB | **2** | ~2.6 GB | ~3.4 GB | ~10–14 min |
-| NVIDIA RTX 2060 / GTX 1080 Ti | 6–11 GB | **3** | ~3.5 GB | ~2.5 GB+ | ~7–9 min |
-| NVIDIA RTX 3050 (Laptop) | 4 GB | **2** *(default)* | ~2.6 GB | ~1.4 GB | ~8–12 min |
-| NVIDIA RTX 3060 / 3060 Ti | 8–12 GB | **4** | ~4.8 GB | ~3 GB+ | ~4–6 min |
-| NVIDIA RTX 3070 / 3080 | 8–10 GB | **4–5** | ~4.8–5.6 GB | ~3 GB+ | ~3–5 min |
-| NVIDIA RTX 4060 (Laptop) | 8 GB | **4** | ~4.8 GB | ~3.2 GB | ~4–5 min |
-| NVIDIA RTX 4060 Ti / 4070 | 8–12 GB | **4–5** | ~4.8–5.6 GB | ~3 GB+ | ~3–4 min |
-| NVIDIA RTX 4080 / 4090 | 16–24 GB | **6** | ~6.4 GB | ~10+ GB | ~2–3 min |
-| Apple M1 / M2 (unified memory) | 8–16 GB | **3–4** | ~3.5–4.8 GB | ~3 GB+ | ~4–7 min |
-| Apple M3 Max / M4 Pro | 36–48 GB | **6** | ~6.4 GB | ~30+ GB | ~2–3 min |
-
-> **Note:** VRAM estimates are based on:
-> - `gemma3:1b` model weights ≈ **0.8 GB per worker instance**
-> - KV Cache overhead per 500-token chunk ≈ **0.5 GB per active worker**
-> - Total formula: `(0.8 + 0.5) × workers` GB peak
-
-### Important Warnings
-
-> **Do NOT exceed the recommended workers for your GPU.** If VRAM runs out, Ollama will spill model weights into system RAM via PCIe, making extraction **slower than single-threaded** (sometimes 5–10× slower due to PCIe bus bandwidth limits).
-
-> **CPU-only users** should keep workers at **1**. Running multiple LLM instances on CPU increases RAM pressure and context-switching overhead with no GPU parallelism benefit.
+> **Note:** The Cross-Encoder neural reranker is explicitly configured to run on **CPU** (`RERANKER_DEVICE="cpu"`) so that GPU VRAM remains dedicated to local LLMs and embeddings.

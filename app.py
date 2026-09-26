@@ -16,215 +16,310 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom premium CSS - Bento Monochrome Theme
+# Custom Minimalist Developer & Systems Engineering Interface
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@300;400;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap');
 
 html, body, [class*="css"] {
-    font-family: 'Inter', 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
-/* Base application styling with bento monochrome grid */
+/* Background: Pitch black #080808 with subtle technical matrix grid */
 .stApp {
-    background-color: #050505;
-    background-image: radial-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 0);
+    background-color: #080808;
+    background-image: radial-gradient(rgba(255, 255, 255, 0.08) 1px, transparent 0);
     background-size: 24px 24px;
     color: #e5e5e5;
 }
 
-/* Sidebar background */
+/* Sidebar: Deep charcoal #0d0d0d with crisp hairline border */
 [data-testid="stSidebar"] {
-    background-color: #050505;
-    border-right: 1px solid #1f1f1f;
+    background-color: #0d0d0d !important;
+    border-right: 1px solid #262626 !important;
 }
 
-/* Text color for sidebar */
 [data-testid="stSidebar"] .stMarkdown {
-    color: #a3a3a3;
+    color: #737373;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.82rem;
 }
 
-/* Styled headers */
-h1, h2, h3 {
+/* Headings: Ultra-bold grotesque with tight tracking */
+h1, h2, h3, h4 {
+    font-family: 'Space Grotesk', sans-serif !important;
     color: #ffffff !important;
+    font-weight: 800 !important;
+    text-transform: uppercase !important;
+    letter-spacing: -0.035em !important;
+}
+
+/* Technical Eyebrows / Stamped Metadata */
+.tech-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 10px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.72rem;
     font-weight: 600;
-    margin-bottom: 0.5rem;
-    letter-spacing: -0.015em;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    background-color: #141414;
+    border: 1px solid #262626;
+    color: #a3a3a3;
+    border-radius: 2px;
 }
 
-/* Premium card wrappers - Bento Monochrome styled */
+.tech-mono-meta {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.72rem;
+    color: #737373;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+/* Bento Cards: Pitch black panels with 1px border & corner crosshair (+) */
 .premium-card {
-    background-color: rgba(23, 23, 23, 0.55);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 16px;
-    padding: 1.5rem;
+    position: relative;
+    background-color: #111111;
+    border: 1px solid #262626;
+    border-radius: 4px;
+    padding: 1.35rem;
     margin-bottom: 1rem;
-    transition: border-color 0.3s ease;
-}
-.premium-card:hover {
-    border-color: rgba(255, 255, 255, 0.2);
+    box-shadow: none !important;
+    transition: border-color 0.15s ease;
 }
 
-/* Button stylings - Monochrome */
+.premium-card:hover {
+    border-color: #737373;
+}
+
+.premium-card::after {
+    content: "+";
+    position: absolute;
+    top: 6px;
+    right: 8px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.72rem;
+    color: #525252;
+}
+
+/* High-contrast solid CTA buttons (White on Black with hover inversion) */
 .stButton>button {
-    background-color: transparent;
-    color: #ffffff;
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    padding: 0.6rem 1.5rem;
-    border-radius: 8px;
-    font-weight: 500;
-    font-size: 0.95rem;
-    transition: all 0.2s ease;
-    width: 100%;
+    background-color: #ffffff !important;
+    color: #080808 !important;
+    font-family: 'JetBrains Mono', monospace !important;
+    font-weight: 700 !important;
+    font-size: 0.82rem !important;
+    letter-spacing: 0.05em !important;
+    text-transform: uppercase !important;
+    border: 1px solid #ffffff !important;
+    border-radius: 2px !important;
+    padding: 0.65rem 1.4rem !important;
+    box-shadow: none !important;
+    transition: all 0.15s ease !important;
+    width: 100% !important;
 }
 
 .stButton>button:hover {
-    background-color: #ffffff;
-    color: #050505;
-    border: 1px solid #ffffff;
+    background-color: #080808 !important;
+    color: #ffffff !important;
+    border-color: #ffffff !important;
 }
 
 .stButton>button:active {
-    transform: translateY(0);
-}
-
-.stButton>button:focus {
-    outline: 2px solid #ffffff;
-    outline-offset: 2px;
-}
-
-/* Status logs */
-.log-box {
-    background-color: #171717;
-    border: 1px solid #262626;
-    border-radius: 8px;
-    padding: 0.75rem;
-    font-family: 'JetBrains Mono', 'Fira Code', monospace;
-    color: #a3a3a3;
-    margin-bottom: 0.5rem;
-}
-
-/* Metric styling */
-[data-testid="stMetricValue"] {
+    background-color: #1a1a1a !important;
     color: #ffffff !important;
 }
 
-[data-testid="stMetricLabel"] {
+/* Secondary Button Style */
+.stButton>button[kind="secondary"], .stButton>button:has(div:contains("Clear")), .stButton>button:has(div:contains("Delete")), .stButton>button:has(div:contains("Reset")) {
+    background-color: #141414 !important;
     color: #737373 !important;
+    border: 1px solid #262626 !important;
 }
 
-/* Tab styling - Monochrome */
+.stButton>button[kind="secondary"]:hover, .stButton>button:has(div:contains("Clear")):hover, .stButton>button:has(div:contains("Delete")):hover, .stButton>button:has(div:contains("Reset")):hover {
+    background-color: #1e1e1e !important;
+    color: #ffffff !important;
+    border-color: #737373 !important;
+}
+
+/* Metric Strips: Crisp key-value blocks */
+[data-testid="stMetricValue"] {
+    font-family: 'Space Grotesk', 'JetBrains Mono', monospace !important;
+    color: #ffffff !important;
+    font-weight: 700 !important;
+    font-size: 1.85rem !important;
+    letter-spacing: -0.03em !important;
+}
+
+[data-testid="stMetricLabel"] {
+    font-family: 'JetBrains Mono', monospace !important;
+    color: #737373 !important;
+    font-size: 0.72rem !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.1em !important;
+}
+
+/* Tabs: Minimalist Terminal IDE styling */
 .stTabs [data-baseweb="tab-list"] {
     gap: 0;
+    background: transparent;
     border-bottom: 1px solid #262626;
+    padding: 0;
+    margin-bottom: 1.5rem;
 }
 
 .stTabs [data-baseweb="tab"] {
-    color: #737373;
-    border-bottom: 2px solid transparent;
-    padding: 0.75rem 1.25rem;
+    font-family: 'JetBrains Mono', monospace !important;
+    font-size: 0.8rem !important;
+    font-weight: 600 !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.08em !important;
+    color: #737373 !important;
+    background: transparent !important;
+    border: none !important;
+    border-bottom: 2px solid transparent !important;
+    padding: 0.65rem 1.4rem !important;
+    border-radius: 0 !important;
 }
 
 .stTabs [aria-selected="true"] {
     color: #ffffff !important;
-    border-bottom-color: #ffffff !important;
+    border-bottom: 2px solid #ffffff !important;
+    background: transparent !important;
 }
 
-/* Input / selectbox styling */
-.stTextInput>div>div>input, .stSelectbox>div>div {
-    background-color: #171717;
-    border: 1px solid #262626;
-    color: #ffffff;
-    border-radius: 8px;
+/* Chat Messages: Clean console panels */
+[data-testid="stChatMessage"] {
+    background-color: #111111 !important;
+    border: 1px solid #262626 !important;
+    border-radius: 2px !important;
+    padding: 1.25rem !important;
+    margin-bottom: 1rem !important;
+    box-shadow: none !important;
 }
 
-.stTextInput>div>div>input:focus {
-    border-color: #ffffff;
-    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.15);
+/* Input / Selectbox styling */
+.stTextInput>div>div>input, .stSelectbox>div>div, .stTextArea>div>div>textarea {
+    background-color: #111111 !important;
+    border: 1px solid #262626 !important;
+    color: #ffffff !important;
+    border-radius: 2px !important;
+    font-family: 'JetBrains Mono', monospace !important;
+    font-size: 0.85rem !important;
+}
+
+.stTextInput>div>div>input:focus, .stTextArea>div>div>textarea:focus {
+    border-color: #737373 !important;
+    box-shadow: none !important;
 }
 
 /* Expander styling */
 .streamlit-expanderHeader {
-    background-color: #171717;
-    border: 1px solid #262626;
-    border-radius: 8px;
-    color: #a3a3a3;
+    background-color: #111111 !important;
+    border: 1px solid #262626 !important;
+    border-radius: 2px !important;
+    font-family: 'JetBrains Mono', monospace !important;
+    font-size: 0.82rem !important;
+    color: #a3a3a3 !important;
 }
 
-/* Progress bar accent */
+/* Progress bar: Stark solid white on dark rail */
 .stProgress>div>div>div>div {
-    background-color: #ffffff;
+    background-color: #ffffff !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
 }
 
-/* Selection highlight */
-::selection {
-    background-color: rgba(255, 255, 255, 0.15);
-    color: #ffffff;
+.stProgress>div>div>div {
+    background-color: #1e1e1e !important;
+    border-radius: 0 !important;
 }
 
 /* Scrollbar */
 ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+    width: 4px;
+    height: 4px;
 }
 ::-webkit-scrollbar-track {
-    background: #050505;
+    background: #080808;
 }
 ::-webkit-scrollbar-thumb {
     background: #262626;
-    border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-    background: #52525b;
+    background: #525252;
 }
 
 /* File uploader */
 [data-testid="stFileUploader"] {
-    background-color: #171717;
-    border: 1px dashed #262626;
-    border-radius: 8px;
+    background-color: #111111 !important;
+    border: 1px dashed #262626 !important;
+    border-radius: 2px !important;
 }
 
-/* Toast / alerts */
+/* Alert / Toast */
 .stAlert {
-    background-color: #171717;
-    border: 1px solid #262626;
-    border-radius: 8px;
+    background-color: #111111 !important;
+    border: 1px solid #262626 !important;
+    border-radius: 2px !important;
+    font-family: 'JetBrains Mono', monospace !important;
+    font-size: 0.82rem !important;
 }
 
-/* Checkbox visual styling for visible ticks */
-div[data-testid="stCheckbox"] svg {
-    stroke: #050505 !important;
-    fill: #050505 !important;
+/* Status container */
+[data-testid="stStatusWidget"] {
+    background-color: #111111 !important;
+    border: 1px solid #262626 !important;
+    border-radius: 2px !important;
+    font-family: 'JetBrains Mono', monospace !important;
 }
-div[data-testid="stCheckbox"] [role="checkbox"] {
-    border-color: #262626 !important;
-}
+
+/* Checkbox visual styling */
 div[data-testid="stCheckbox"] [role="checkbox"][aria-checked="true"] {
     background-color: #ffffff !important;
     border-color: #ffffff !important;
+    border-radius: 2px !important;
+}
+
+div[data-testid="stCheckbox"] svg {
+    stroke: #080808 !important;
+    fill: #080808 !important;
 }
 </style>
 """, unsafe_allow_html=True)
 
+import hashlib
+import time
+
 # Imports from src
 from src.vector_store import VectorStore
+from src.bm25_store import BM25Store
 from src.graph_store import GraphStore
 from src.agents import QueryAgent
 from src import ingestion
 from src import llm
 from src.source_registry import SourceRegistry
+from src.observability import QueryAuditLogger
 
 # Initialize session state for DB & Graph connections
 if "vector_store" not in st.session_state:
     st.session_state.vector_store = VectorStore()
+if "bm25_store" not in st.session_state:
+    st.session_state.bm25_store = BM25Store()
 if "graph_store" not in st.session_state:
     st.session_state.graph_store = GraphStore()
 if "query_agent" not in st.session_state:
     st.session_state.query_agent = QueryAgent(
         st.session_state.vector_store,
-        st.session_state.graph_store
+        st.session_state.graph_store,
+        bm25_store=st.session_state.bm25_store
     )
+if "audit_logger" not in st.session_state:
+    st.session_state.audit_logger = QueryAuditLogger()
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 registry = SourceRegistry()
@@ -252,22 +347,62 @@ if st.sidebar.button("Ingest & Index Documents"):
         progress_bar = st.sidebar.progress(0)
         status_text = st.sidebar.empty()
         
+        total_files = len(uploaded_files)
         for idx, uploaded_file in enumerate(uploaded_files):
+            file_bytes = uploaded_file.getvalue()
+            file_hash = hashlib.sha256(file_bytes).hexdigest()
+            duplicate = registry.is_duplicate_file(file_hash)
+            if duplicate:
+                st.sidebar.warning(f"Skipping '{uploaded_file.name}': identical file already ingested as '{duplicate['filename']}'.")
+                continue
+
             file_path = os.path.join(temp_dir, uploaded_file.name)
             with open(file_path, "wb") as f:
-                f.write(uploaded_file.getbuffer())
+                f.write(file_bytes)
             
-            status_text.text(f"Ingesting: {uploaded_file.name}")
+            file_header = f"[{idx+1}/{total_files}] {uploaded_file.name}"
+            status_text.markdown(f"📄 **Parsing text & layout:** `{file_header}`...")
+            progress_bar.progress(0.05)
+            
             try:
+                # 1. Ingest text chunks
                 chunks = ingestion.ingest_file(file_path)
-                st.session_state.vector_store.add_chunks(chunks)
-                
                 total_chunks = len(chunks)
-                status_text.text(f"Extracting knowledge graph ({total_chunks} chunks, {st.session_state.get('max_workers', 2)} parallel streams)...")
+                progress_bar.progress(0.12)
+                
+                # 2. Dense Embeddings
+                status_text.markdown(f"🔢 **Computing vector embeddings:** `{file_header}` ({total_chunks} chunks)...")
+                st.session_state.vector_store.add_chunks(chunks)
+                progress_bar.progress(0.18)
+                
+                # 3. BM25 Lexical Index
+                status_text.markdown(f"🔤 **Indexing lexical keywords:** `{file_header}`...")
+                st.session_state.bm25_store.add_documents(chunks)
+                progress_bar.progress(0.22)
+                
+                # 4. Knowledge Graph with live chunk ETA callback
+                workers = st.session_state.get("max_workers", 2)
+                def on_kg_progress(completed, total, elapsed):
+                    pct_complete = completed / max(1, total)
+                    scaled_progress = 0.22 + (pct_complete * 0.76)
+                    progress_bar.progress(min(0.98, scaled_progress))
+                    
+                    rate = completed / max(0.1, elapsed)
+                    remaining = max(0, int((total - completed) / max(0.01, rate)))
+                    mins, secs = divmod(remaining, 60)
+                    eta_str = f"{mins}m {secs:02d}s" if mins > 0 else f"{secs}s"
+                    status_text.markdown(
+                        f"🕸️ **Knowledge Graph:** `{file_header}`\n\n"
+                        f"`{completed}/{total}` chunks ({int(pct_complete*100)}%) • **ETA:** ~{eta_str} ({rate:.1f} chunks/s, {workers} streams)"
+                    )
+
+                status_text.markdown(f"🕸️ **Extracting Knowledge Graph:** `{file_header}` ({total_chunks} chunks, {workers} streams)...")
                 st.session_state.graph_store.add_relations_from_chunks_parallel(
                     chunks,
-                    max_workers=st.session_state.get("max_workers", 2)
+                    max_workers=workers,
+                    progress_callback=on_kg_progress
                 )
+                progress_bar.progress(1.0)
                 
                 # Register source in registry
                 page_count = max([c.get("page", 1) for c in chunks]) if chunks else 1
@@ -276,19 +411,20 @@ if st.sidebar.button("Ingest & Index Documents"):
                     file_type=uploaded_file.name.split('.')[-1].lower(),
                     chunk_count=len(chunks),
                     page_count=page_count,
-                    size_bytes=uploaded_file.size
+                    size_bytes=uploaded_file.size,
+                    file_hash=file_hash
                 )
             except Exception as e:
-                st.sidebar.error(f"Error: {e}")
+                st.sidebar.error(f"Error ingesting {uploaded_file.name}: {e}")
             
             try:
                 os.remove(file_path)
             except Exception:
                 pass
                 
-            progress_bar.progress(int((idx + 1) / len(uploaded_files) * 100))
-            
         st.session_state.graph_store.save()
+        status_text.markdown("✅ **Ingestion complete!**")
+        progress_bar.progress(1.0)
         st.sidebar.success("Ingestion complete!")
         st.rerun()
 
@@ -326,6 +462,7 @@ else:
                 if filename:
                     st.session_state.vector_store.delete_by_source(filename)
                     st.session_state.graph_store.delete_by_source(filename)
+                    st.session_state.bm25_store.delete_source(filename)
                     st.toast(f"Deleted source: {filename}")
                     st.rerun()
 
@@ -416,12 +553,27 @@ with st.sidebar.expander("Settings", expanded=False):
     if st.button("Reset Database & Graph", type="secondary"):
         st.session_state.vector_store.reset()
         st.session_state.graph_store.reset()
+        st.session_state.bm25_store.clear()
+        if hasattr(st.session_state.query_agent, "clear_cache"):
+            st.session_state.query_agent.clear_cache()
         registry.reset()
-        st.toast("Database, Graph, and Source Registry reset successfully.")
+        st.toast("Database, Graph, BM25 Index, and Source Registry reset successfully.")
         st.rerun()
 # Main Layout
-st.markdown("# GraphMind: Knowledge Notebook")
-st.markdown("##### *An Intelligent Document Q&A Assistant with Graph-Based Memory*")
+st.markdown("""
+<div style="border-bottom: 1px solid #262626; padding-bottom: 1.25rem; margin-bottom: 1.75rem;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.6rem;">
+        <div class="tech-badge">// 01 • SYSTEMS ARCHITECTURE</div>
+        <div class="tech-mono-meta">LOC: LOCALHOST • RUNTIME: CUDA • STACK: HYBRID RRF</div>
+    </div>
+    <h1 style="font-size: 2.7rem; font-weight: 800; letter-spacing: -0.04em; text-transform: uppercase; margin: 0; color: #ffffff;">
+        GRAPHMIND <span style="color: #525252;">//</span> CORE
+    </h1>
+    <div style="margin-top: 0.5rem; color: #737373; font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; letter-spacing: 0.04em;">
+        [ ENGINE: DENSE VECTORS • BM25 PLUS • KNOWLEDGE GRAPH TRAVERSAL • OKF CRITIC ]
+    </div>
+</div>
+""", unsafe_allow_html=True)
 
 # Navigation tabs
 tab_qa, tab_guide, tab_graph, tab_eval = st.tabs([
@@ -453,20 +605,41 @@ with tab_qa:
             
             # If it's an assistant message and has extra details, show them in expanders
             if message["role"] == "assistant" and "category" in message:
-                col_met1, col_met2 = st.columns(2)
+                col_met1, col_met2, col_met3 = st.columns(3)
                 with col_met1:
                     st.metric("Routed Category", message["category"])
                 with col_met2:
-                    st.metric("Confidence Score", f"{message['confidence']}%")
+                    st.metric("Calibrated Confidence", f"{message['confidence']}%")
+                with col_met3:
+                    latency = message.get("retrieval_metadata", {}).get("elapsed_ms", 0.0)
+                    st.metric("Retrieval Latency", f"{latency:.1f} ms")
                 
                 # Expanders for tracing
-                with st.expander("Show Routing & Extraction Logs", expanded=False):
+                with st.expander("Show Routing & Confidence Breakdown", expanded=False):
                     st.markdown(f"**Routed Category:** `{message['category']}`")
                     st.markdown(f"**Classification Reasoning:** *{message['reasoning']}*")
-                    st.markdown(f"**Chunks Retrieved:** {message['num_chunks']}")
+                    signals = message.get("confidence_signals", {})
+                    if signals:
+                        st.markdown("**Calibration Signals:**")
+                        st.write(f"- Citation Grounding: {signals.get('citation_grounding', 0) * 100:.0f}%")
+                        st.write(f"- Retrieval Coverage: {signals.get('retrieval_coverage', 0) * 100:.0f}%")
+                        st.write(f"- Graph Evidence: {signals.get('graph_evidence', 0) * 100:.0f}%")
+                        st.write(f"- Model Self-Score: {signals.get('raw_llm', 0) * 100:.0f}%")
+                    st.markdown(f"**Chunks Retrieved (RRF):** {message['num_chunks']}")
                     st.markdown(f"**Relations Discovered:** {message['num_relations']}")
                 
-                with st.expander("Show Retrieved Document Chunks (Vector DB)", expanded=False):
+                # Show contradiction warning if any
+                contradictions = st.session_state.graph_store.get_contradictions()
+                if contradictions:
+                    with st.expander("⚠️ Knowledge Graph Contradictions Detected", expanded=False):
+                        for c in contradictions:
+                            st.warning(
+                                f"**{c['subject']}** has conflicting **{c['relation']}**: "
+                                f"`{c['existing_object']}` (from {', '.join(c['existing_sources'])}) vs "
+                                f"`{c['new_object']}` (from {c['new_source']})"
+                            )
+                
+                with st.expander("Show Retrieved Document Chunks (RRF + Reranker)", expanded=False):
                     for idx, chunk in enumerate(message["vector_chunks"]):
                         st.markdown(f"**Chunk {idx+1} (Source: {chunk['source']}, Page: {chunk['page']})**")
                         st.info(chunk["text"])
@@ -504,9 +677,35 @@ with tab_qa:
             
             # Generate response
             with st.chat_message("assistant"):
-                with st.spinner("Retrieving context and synthesizing answer..."):
+                with st.status("🧠 GraphMind Agent is analyzing...", expanded=True) as status_box:
                     try:
+                        st.write("🔍 Searching Dense Vectors, BM25 Lexical Index & Knowledge Graph...")
+                        start_time = time.time()
                         result = st.session_state.query_agent.answer_query(query, source_filter=selected_sources)
+                        elapsed_sec = round(time.time() - start_time, 2)
+                        elapsed_ms = elapsed_sec * 1000.0
+
+                        st.session_state.audit_logger.log_query_execution(
+                            query=query,
+                            category=result["category"],
+                            latency_ms=elapsed_ms,
+                            chunk_count=len(result["vector_chunks"]),
+                            edge_count=len(result["graph_relations"]),
+                            confidence=result["confidence"],
+                            sources_used=selected_sources
+                        )
+
+                        if result.get("cached"):
+                            st.write("⚡ Cache Hit (instant sub-millisecond return)")
+                            status_box.update(label=f"⚡ Answer retrieved from cache in {elapsed_sec}s", state="complete", expanded=False)
+                        else:
+                            cat = result.get("category", "HYBRID")
+                            num_c = len(result["vector_chunks"])
+                            num_r = len(result["graph_relations"])
+                            st.write(f"📊 Routed to **{cat}** • Retrieved {num_c} passages & {num_r} relations")
+                            st.write("✨ Synthesizing verified answer with citations & confidence calibration...")
+                            status_box.update(label=f"✅ Response generated in {elapsed_sec}s ({cat})", state="complete", expanded=False)
+
                         st.markdown(result["answer"])
                         
                         # Append assistant message to history
@@ -515,11 +714,13 @@ with tab_qa:
                             "content": result["answer"],
                             "category": result["category"],
                             "confidence": result["confidence"],
+                            "confidence_signals": result.get("confidence_signals", {}),
                             "reasoning": result["reasoning"],
                             "num_chunks": len(result["vector_chunks"]),
                             "num_relations": len(result["graph_relations"]),
                             "vector_chunks": result["vector_chunks"],
-                            "graph_relations": result["graph_relations"]
+                            "graph_relations": result["graph_relations"],
+                            "retrieval_metadata": result.get("retrieval_metadata", {})
                         })
                         st.rerun()
                     except Exception as e:

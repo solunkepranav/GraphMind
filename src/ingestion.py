@@ -1,4 +1,6 @@
 import os
+import re
+import hashlib
 import base64
 import fitz  # PyMuPDF
 import mimetypes
@@ -273,20 +275,69 @@ def parse_image(file_path: str) -> list[dict]:
         print(f"Error parsing image {file_path}: {e}")
         raise e
 
+def enrich_chunks_with_metadata(chunks: list[dict], source_name: str) -> list[dict]:
+    """Enriches chunks with rich structural metadata:
+    - deterministic chunk_id
+    - token_count estimate
+    - section_header tracking
+    - prev_chunk_id / next_chunk_id chaining
+    - content_hash (SHA256) for deduplication
+    """
+    if not chunks:
+        return []
+
+    current_header = "General"
+    enriched = []
+
+    for idx, c in enumerate(chunks):
+        text = c.get("text", "")
+        page = c.get("page", 1)
+        cid = f"{source_name}_p{page}_c{idx}"
+
+        # Detect markdown headers or capitalized section headings
+        header_match = re.search(r"^(?:#{1,6}\s+|[A-Z0-9\s]{4,30}\n)([^\n]+)", text, re.MULTILINE)
+        if header_match:
+            candidate_header = header_match.group(1).strip()
+            if candidate_header:
+                current_header = candidate_header
+
+        words = text.split()
+        token_count = max(1, int(len(words) * 1.3))
+        content_hash = hashlib.sha256(text.strip().encode("utf-8")).hexdigest()
+
+        enriched_chunk = dict(c)
+        enriched_chunk["chunk_id"] = cid
+        enriched_chunk["id"] = cid
+        enriched_chunk["source"] = source_name
+        enriched_chunk["page"] = page
+        enriched_chunk["token_count"] = token_count
+        enriched_chunk["section_header"] = current_header
+        enriched_chunk["content_hash"] = content_hash
+        enriched.append(enriched_chunk)
+
+    total = len(enriched)
+    for idx in range(total):
+        enriched[idx]["prev_chunk_id"] = enriched[idx - 1]["chunk_id"] if idx > 0 else None
+        enriched[idx]["next_chunk_id"] = enriched[idx + 1]["chunk_id"] if idx < total - 1 else None
+
+    return enriched
+
 def ingest_file(file_path: str) -> list[dict]:
     """
     Ingests any supported file type (.pdf, .docx, .pptx, .jpg, .jpeg, .png)
-    and returns a uniform list of chunks:
-    [{"text": chunk_text, "source": filename, "page": page_number}, ...]
+    and returns a uniform list of rich-annotated chunks.
     """
+    filename = os.path.basename(file_path)
     _, ext = os.path.splitext(file_path.lower())
     if ext == ".pdf":
-        return parse_pdf(file_path)
+        raw_chunks = parse_pdf(file_path)
     elif ext == ".docx":
-        return parse_docx(file_path)
+        raw_chunks = parse_docx(file_path)
     elif ext == ".pptx":
-        return parse_pptx(file_path)
+        raw_chunks = parse_pptx(file_path)
     elif ext in [".jpg", ".jpeg", ".png"]:
-        return parse_image(file_path)
+        raw_chunks = parse_image(file_path)
     else:
         raise ValueError(f"Unsupported file format: {ext}")
+
+    return enrich_chunks_with_metadata(raw_chunks, filename)

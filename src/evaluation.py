@@ -5,21 +5,78 @@ from src import llm
 from src.vector_store import VectorStore
 from src.graph_store import GraphStore
 
-# Benchmark questions and their descriptions
-BENCHMARK_QUESTIONS = [
-    {
-        "question": "How does the proposed solution in Paper 2 (FMEA KG-RAG) address the limitations of standard RAG mentioned in Paper 3 (RAG Survey)?",
-        "ground_truth": "Paper 2 proposes a knowledge graph enhanced RAG system which preserves relational context that is typically lost in flat chunk-based retrieval. This directly addresses the limitation highlighted in Paper 3, which states that standard RAG systems treat documents as flat text chunks and struggle with multi-hop reasoning and relational queries."
-    },
-    {
-        "question": "What is the key difference and similarity in model sizes used in Microsoft's GraphRAG (Paper 4) versus MiniRAG (Paper 11)?",
-        "ground_truth": "Microsoft's GraphRAG uses large LLMs for entity/relation extraction and Leiden community detection. MiniRAG focuses on a lightweight heterogeneous graph indexing approach that achieves similar QA performance using smaller, free LLMs like Llama 3.1 8B, resulting in 25% of the compute cost."
-    },
-    {
-        "question": "How does entity extraction accuracy (Paper 9) impact question answering performance over knowledge graphs (Paper 10)?",
-        "ground_truth": "Paper 9 shows that LLM-based entity extraction achieves 70-85% F1 score, but relation extraction is a bottleneck (55-70%) and introduces hallucinated relations. Paper 10 notes that automatically constructed knowledge graphs contain noise (errors/hallucinations) which degrades QA performance, and recommends building noise-tolerant subgraph retrieval pipelines to handle this."
-    }
-]
+import math
+
+def calculate_chunk_relevance(chunk: dict, gold_sources: list[str], gold_evidence: list[str] = None) -> int:
+    """Computes relevance score for a retrieved chunk against ground truth:
+    2 = matches both gold source and gold evidence
+    1 = matches either gold source or gold evidence
+    0 = irrelevant
+    """
+    chunk_source = chunk.get("source", "")
+    chunk_text = (chunk.get("text") or "").lower()
+
+    source_match = any(gs.lower() in chunk_source.lower() or chunk_source.lower() in gs.lower() for gs in (gold_sources or []))
+    
+    evidence_match = False
+    if gold_evidence:
+        evidence_match = any(ge.lower() in chunk_text for ge in gold_evidence)
+
+    if source_match and evidence_match:
+        return 2
+    elif source_match or evidence_match:
+        return 1
+    return 0
+
+def compute_retrieval_metrics(
+    retrieved_chunks: list[dict],
+    gold_sources: list[str],
+    gold_evidence: list[str] = None,
+    k_list: list[int] = None
+) -> dict:
+    """Computes Recall@K, HitRate@K, MRR, and NDCG@K for a single query."""
+    if k_list is None:
+        k_list = [3, 5, 10]
+
+    relevance_scores = [
+        calculate_chunk_relevance(c, gold_sources, gold_evidence)
+        for c in retrieved_chunks
+    ]
+
+    metrics = {}
+
+    # MRR (Mean Reciprocal Rank)
+    mrr = 0.0
+    for rank, rel in enumerate(relevance_scores, start=1):
+        if rel > 0:
+            mrr = 1.0 / rank
+            break
+    metrics["mrr"] = mrr
+
+    for k in k_list:
+        sub_chunks = retrieved_chunks[:k]
+        sub_rel = relevance_scores[:k]
+
+        # Hit Rate @ K
+        metrics[f"hit_rate@{k}"] = 1.0 if any(r > 0 for r in sub_rel) else 0.0
+
+        # Recall @ K (coverage of gold sources)
+        retrieved_sources = {c.get("source", "").lower() for c in sub_chunks}
+        if gold_sources:
+            matched_sources = sum(
+                1 for gs in gold_sources if any(gs.lower() in rs or rs in gs.lower() for rs in retrieved_sources)
+            )
+            metrics[f"recall@{k}"] = matched_sources / len(gold_sources)
+        else:
+            metrics[f"recall@{k}"] = metrics[f"hit_rate@{k}"]
+
+        # NDCG @ K
+        dcg = sum(rel / math.log2(rank + 1) for rank, rel in enumerate(sub_rel, start=1))
+        ideal_rel = sorted(relevance_scores, reverse=True)[:k]
+        idcg = sum(rel / math.log2(rank + 1) for rank, rel in enumerate(ideal_rel, start=1))
+        metrics[f"ndcg@{k}"] = (dcg / idcg) if idcg > 0 else 0.0
+
+    return metrics
 
 JUDGE_PROMPT = """You are an independent academic reviewer. Your task is to evaluate and compare two AI-generated answers to a question based on the provided ground-truth source material.
 
@@ -69,7 +126,45 @@ Question: {query}
     except Exception as e:
         return f"Failed to generate vector answer: {e}"
 
-def run_comparison(vector_store: VectorStore, graph_store: GraphStore) -> dict:
+def load_benchmark_questions(filepath: str = None) -> list[dict]:
+    """Loads benchmark questions from evaluation/questions.jsonl or returns defaults."""
+    if filepath is None:
+        filepath = os.path.join(config.BASE_DIR, "evaluation", "questions.jsonl")
+    questions = []
+    if os.path.exists(filepath):
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        data = json.loads(line)
+                        questions.append({
+                            "question": data.get("question", ""),
+                            "ground_truth": data.get("gold_answer", "") or data.get("ground_truth", "")
+                        })
+        except Exception as e:
+            print(f"Error loading benchmark questions from {filepath}: {e}")
+            
+    if not questions:
+        questions = [
+            {
+                "question": "What is GraphMind's core architectural approach to document retrieval?",
+                "ground_truth": "GraphMind combines dense vector search with lexical BM25 and knowledge graph traversal using Reciprocal Rank Fusion."
+            },
+            {
+                "question": "Which cross-encoder model is selected for CPU reranking in GraphMind?",
+                "ground_truth": "cross-encoder/ms-marco-MiniLM-L6-v2 running on CPU."
+            },
+            {
+                "question": "How does GraphMind prevent negative IDF issues in BM25 on small collections?",
+                "ground_truth": "By adopting BM25Plus which maintains a strictly positive lower bound for term frequency and inverse document frequency."
+            }
+        ]
+    return questions
+
+BENCHMARK_QUESTIONS = load_benchmark_questions()
+
+def run_comparison(vector_store: VectorStore, graph_store: GraphStore, max_questions: int = 5) -> dict:
     """
     Runs the benchmark evaluation.
     If the database is empty, automatically ingests literature_review_graphmind.md first.
@@ -113,7 +208,8 @@ def run_comparison(vector_store: VectorStore, graph_store: GraphStore) -> dict:
     from src.agents import QueryAgent
     agent = QueryAgent(vector_store, graph_store)
 
-    for item in BENCHMARK_QUESTIONS:
+    questions_to_evaluate = BENCHMARK_QUESTIONS[:max_questions] if max_questions else BENCHMARK_QUESTIONS
+    for item in questions_to_evaluate:
         question = item["question"]
         ground_truth = item["ground_truth"]
         
